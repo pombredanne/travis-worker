@@ -62,9 +62,10 @@ module Travis
         end
 
         def compile_script
-          Build.script(payload.merge(timeouts: false, hosts: Travis::Worker.config[:hosts]), logs: { build: false, state: true }).compile
+          data = payload.merge(timeouts: false, hosts: Travis::Worker.config[:hosts], cache_options: Travis::Worker.config[:cache_options])
+          Build.script(data, logs: { build: false, state: true }).compile
         rescue StandardError => e
-          raise ScriptCompileError, "An error occured while compiling the build script"
+          raise ScriptCompileError, "An error occured while compiling the build script : #{e.message}"
         end
 
         def setup_log_streaming
@@ -148,8 +149,14 @@ module Travis
         end
 
         def upload_and_run_script
+          info "making sure build.sh doesn't exist"
+          if session.exec("test -f ~/build.sh") == 0
+            warn "Reused VM with leftover data, requeueing"
+            connection_error
+          end
+
           info "uploading build.sh"
-          session.upload_file("~/build.sh", compile_script)
+          session.upload_file("~/build.sh", payload['script'] || compile_script)
 
           info "setting +x permission on build.sh"
           session.exec("chmod +x ~/build.sh")
